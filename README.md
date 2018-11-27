@@ -7,7 +7,7 @@
 ### 内网镜像仓库缓存
 在内网`node1`主机上启动一个仓库镜像服务指向阿里云镜像加速服务，首次拉取某个版本的镜像`node1`不存在则自动向阿里云拉取并缓存到本地，下次拉取这个镜像时将直接从`node1`的缓存中返回，大大提升内网拉取镜像的速度。也可用于跨区域的机房之间的镜像按需自动同步缓存。
 ```
-docker run -itd -p 80:5000 -e PROXY_URL=https://xxxxxxxx.mirror.aliyuncs.com --name reg-aliyun zhangsean/registry-mirror
+docker run -itd -p 80:5000 -e PROXY_REMOTE_URL=https://xxxxxxxx.mirror.aliyuncs.com --name reg-aliyun zhangsean/registry-mirror
 ```
 在内网其他主机上设置`node1`为受信任的仓库镜像，
 ```
@@ -30,7 +30,7 @@ docker pull nginx
 ### 墙外镜像仓库代理
 在一个 **不被墙** 的服务器`hk`上以`5001`端口启动一个指向`gcr.io`的镜像代理:
 ```
-docker run -itd -p 5001:5000 -v /data/registry:/var/lib/registry -e PROXY_URL=https://gcr.io --name reg-gcy zhangsean/registry-mirror
+docker run -itd -p 5001:5000 -v /data/registry:/var/lib/registry -e PROXY_REMOTE_URL=https://gcr.io --name reg-gcy zhangsean/registry-mirror
 ```
 墙内主机可以通过`hk`拉取墙外镜像
 ```
@@ -41,7 +41,7 @@ docker pull gcr.io/istio-release/servicegraph:release-1.0-latest-daily
 
 同样以`5002`端口启动一个指向`quay.io`的镜像代理：
 ```
-docker run -itd -p 5002:5000 -v /data/registry:/var/lib/registry -e PROXY_URL=https://quay.io --name reg-quay zhangsean/registry-mirror
+docker run -itd -p 5002:5000 -v /data/registry:/var/lib/registry -e PROXY_REMOTE_URL=https://quay.io --name reg-quay zhangsean/registry-mirror
 ```
 由于很多服务的yaml文件中都指定了镜像仓库比如`gcr.io/k8s/kube-system`，为了方便墙内主机在不修改yaml文件image地址的情况下也可以部署服务，我们可以在墙外主机上启动一个Web服务器把`gcr.io:80`转发到`5001`端口上，以nginx为例
 ```
