@@ -30,7 +30,7 @@ docker pull nginx
 ### 墙外镜像仓库代理
 在一个 **不被墙** 的服务器`hk`上以`5001`端口启动一个指向`gcr.io`的镜像代理:
 ```
-docker run -itd -p 5001:5000 -v /data/registry:/var/lib/registry -e PROXY_REMOTE_URL=https://gcr.io --name reg-gcy zhangsean/registry-mirror
+docker run -itd -p 5001:5000 -v /data/registry:/var/lib/registry -e PROXY_REMOTE_URL=https://gcr.io --name reg-gcr zhangsean/registry-mirror
 ```
 墙内主机可以通过`hk`拉取墙外镜像
 ```
@@ -39,7 +39,7 @@ docker pull hk:5001/istio-release/servicegraph:release-1.0-latest-daily
 docker pull gcr.io/istio-release/servicegraph:release-1.0-latest-daily
 ```
 
-同样以`5002`端口启动一个指向`quay.io`的镜像代理：
+同理以`5002`端口启动一个指向`quay.io`的镜像代理：
 ```
 docker run -itd -p 5002:5000 -v /data/registry:/var/lib/registry -e PROXY_REMOTE_URL=https://quay.io --name reg-quay zhangsean/registry-mirror
 ```
@@ -70,14 +70,30 @@ server {
 EOF
 docker run -itd -p 80:80 -v $PWD/nginx-proxy.conf:/etc/nginx/conf.d/default.conf --name nginx nginx:alpine
 ```
-然后内网的服务器只需要在`hosts`文件或者内网DNS中将`gcr.io`和`quay.io`指向墙外的`hk`服务器，同时将这两个域名加入受信任仓库中即可直接拉取墙外镜像。请替换示例`11.11.1.1`为`hk`服务器IP。
+
+### 一键部署镜像仓库代理
+您也可以通过`docker-compose`快速启动一组实现`gcr.io`、`k8s.gcr.io`、`quay.io`几个特殊镜像仓库的代理服务。
+```shell
+git clone https://github.com/zhangsean/registry-mirror.git
+cd registry-mirror/samples/external-mirror
+docker-compose up -d
 ```
-echo "11.11.1.1  gcr.io quay.io" >> /etc/hosts
+
+### 使用镜像仓库代理
+内网的服务器只需要在`hosts`文件或者内网DNS中将`gcr.io`、`k8s.gcr.io`、`quay.io`指向墙外的`hk`服务器IP，同时将这几个域名加入受信任仓库中即可直接拉取墙外镜像。
+请替换如下示例中`11.11.1.1`为`hk`服务器IP。
+```
+echo "11.11.1.1  gcr.io k8s.gcr.io quay.io" >> /etc/hosts
 vi /etc/docker/daemon.json
 {
-    "insecure-registries": ["gcr.io", "quay.io"]
+    "insecure-registries": ["gcr.io", "k8s.gcr.io", "quay.io"]
 }
+systemctl daemon-reload
 systemctl restart docker
+```
+现在拉取官方镜像就不用担心被墙了 O(∩ _ ∩)O~
+```
+docker pull k8s.gcr.io/pause:3.1
 docker pull gcr.io/istio-release/servicegraph:release-1.0-latest-daily
 ```
 
@@ -86,8 +102,29 @@ docker pull gcr.io/istio-release/servicegraph:release-1.0-latest-daily
 ```
 docker run -itd -p 5000:5000 -v /data/registry:/var/lib/registry -e DELETE_ENABLED=true --name reg-local zhangsean/registry-mirror
 ```
-启动`registry-ui`并开启统计每个镜像大小的功能。
+启动`registry-ui`并开启统计镜像大小的功能。
 ```
 docker run -itd -p 5080:80 --link reg-local:registry -e REGISTRY_API=http://registry:5000/v2 -e REGISTRY_WEB=hub.local.com -e SHOW_IMAGE_SIZE=true zhangsean/registry-ui
 ```
 访问 http://server-ip:5080/ 即可查看已经缓存到本地的镜像，非常清楚地看到每个镜像的大小.
+
+### 手工推送本地镜像到本地仓库
+编辑 `push.sh`
+```
+#!/bin/sh
+HUB=hub.io
+IMG=$1
+echo $IMG
+IMG=`echo $IMG | sed 's|k8s.gcr.io/||g'`
+IMG=`echo $IMG | sed 's|gcr.io/||g'`
+IMG=`echo $IMG | sed 's|quay.io/||g'`
+echo $HUB/$IMG
+docker tag $1 $HUB/$IMG
+docker push $HUB/$IMG
+docker rmi $HUB/$IMG
+```
+一行命令即可将本地所有镜像推送到本地仓库中，供其他主机下载。
+```
+$ chmod +x push.sh
+$ for tag in $(docker images | grep -v TAG | awk '{print $1":"$2}'); do ./push.sh $tag; done;
+```
